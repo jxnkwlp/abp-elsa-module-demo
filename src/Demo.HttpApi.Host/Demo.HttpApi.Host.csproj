@@ -36,6 +36,8 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\..\Elsa.Activities\Elsa.Activities.Http.OpenApi\Elsa.Activities.Http.OpenApi.csproj" />
+        <ProjectReference Include="..\..\Elsa.Activities\Elsa.Activities.SQL\Elsa.Activities.Sql.csproj" />
         <ProjectReference Include="..\Demo.Application\Demo.Application.csproj" />
         <ProjectReference Include="..\Demo.EntityFrameworkCore\Demo.EntityFrameworkCore.csproj" />
         <ProjectReference Include="..\Demo.HttpApi\Demo.HttpApi.csproj" />

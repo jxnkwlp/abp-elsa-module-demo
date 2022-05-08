@@ -6,7 +6,9 @@ using System.Threading.Tasks;
 using Demo.EntityFrameworkCore;
 using Demo.MultiTenancy;
 using Elsa;
+using Elsa.Activities.Http.OpenApi;
 using Elsa.Activities.RabbitMq.Extensions;
+using Elsa.Activities.Sql.Extensions;
 using Elsa.Activities.UserTask.Extensions;
 using Hangfire;
 using Hangfire.MemoryStorage;
@@ -20,10 +22,12 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.OpenApi.Any;
 using Microsoft.OpenApi.Models;
 using Newtonsoft.Json.Serialization;
 using Passingwind.Abp.ElsaModule;
 using StackExchange.Redis;
+using Swashbuckle.AspNetCore.SwaggerGen;
 using Volo.Abp;
 using Volo.Abp.AspNetCore.Mvc;
 using Volo.Abp.AspNetCore.Mvc.AntiForgery;
@@ -89,6 +93,7 @@ public class DemoHttpApiHostModule : AbpModule
                 // .AddFileActivities() 
                 .AddHangfireTemporalActivities()
                 .AddRabbitMqActivities()
+                .AddSqlServerActivities()
                 ;
            }
          );
@@ -183,6 +188,68 @@ public class DemoHttpApiHostModule : AbpModule
                 options.SwaggerDoc("v1", new OpenApiInfo { Title = "Demo API", Version = "v1" });
                 options.DocInclusionPredicate((docName, description) => true);
                 options.CustomSchemaIds(type => type.FullName);
+                // 
+                options.DocumentFilter<HttpEndpointDocumentFilter>();
+
+                // 
+                options.CustomSchemaIds(type =>
+                {
+                    if (type.IsGenericType)
+                    {
+                        var part1 = type.FullName.Substring(0, type.FullName.IndexOf("`")).RemovePostFix("Dto");
+                        var part2 = string.Concat(type.GetGenericArguments().Select(x => x.Name.RemovePostFix("Dto")));
+
+                        if (part1.EndsWith("ListResult") || part1.EndsWith("PagedResult"))
+                        {
+                            var temp1 = part1.Substring(0, part1.LastIndexOf("."));
+                            var temp2 = part1.Substring(part1.LastIndexOf(".") + 1);
+                            return $"{temp1}.{part2}{temp2}";
+                        }
+
+                        return $"{part1}.{part2}";
+                    }
+
+                    return type.FullName.RemovePostFix("Dto");
+                });
+
+                options.CustomOperationIds(e =>
+                {
+                    var action = e.ActionDescriptor.RouteValues["action"];
+                    var controller = e.ActionDescriptor.RouteValues["controller"];
+                    var method = e.HttpMethod;
+
+                    if (action == "GetList")
+                        return $"Get{controller}List";
+
+                    if (action == "GetAllList")
+                        return $"GetAll{controller}List";
+
+                    if (action.StartsWith("GetAll"))
+                        return $"GetAll{controller}{action.RemovePreFix("GetAll")}";
+
+                    if (action == ("Get") || action == ("Create") || action == ("Update") || action == ("Delete"))
+                        return action + controller;
+
+                    if (action.StartsWith("Get"))
+                        return $"Get{controller}{action.RemovePreFix("Get")}";
+
+                    if (action.StartsWith("Create"))
+                        return $"Create{controller}{action.RemovePreFix("Create")}";
+
+                    if (action.StartsWith("Update"))
+                        return $"Update{controller}{action.RemovePreFix("Update")}";
+
+                    if (action.StartsWith("Delete"))
+                        return $"Delete{controller}{action.RemovePreFix("Delete")}";
+
+                    if (action.StartsWith("BatchDelete"))
+                        return $"BatchDelete{controller}";
+
+                    if (method == "HttpGet")
+                        return action + controller;
+                    else
+                        return controller + action;
+                });
             });
     }
 
@@ -308,5 +375,45 @@ public class DemoHttpApiHostModule : AbpModule
         });
 
         app.UseSpa(c => { });
+    }
+
+
+    public class SwaggerEnumDescriptions : ISchemaFilter
+    {
+        public void Apply(OpenApiSchema schema, SchemaFilterContext context)
+        {
+            var type = context.Type;
+
+            if (type.IsEnum)
+            {
+                var names = Enum.GetNames(type);
+
+                var values2 = new OpenApiArray();
+
+                values2.AddRange(names.Select(x => new OpenApiObject
+                {
+                    ["name"] = new OpenApiString(Convert.ToInt32(Enum.Parse(type, x)).ToString()),
+                    ["value"] = new OpenApiString(x),
+                }));
+
+                var values1 = new OpenApiArray();
+                values1.AddRange(names.Select(x => new OpenApiString(x)));
+
+                schema.Extensions.Add(
+                    "x-enumNames",
+                    values1
+                );
+
+                schema.Extensions.Add(
+                    "x-ms-enum",
+                    new OpenApiObject
+                    {
+                        ["name"] = new OpenApiString(type.Name),
+                        ["modelAsString"] = new OpenApiBoolean(true),
+                        ["values"] = values2,
+                    }
+                );
+            }
+        }
     }
 }
